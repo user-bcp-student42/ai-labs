@@ -75,6 +75,7 @@
                 <configuration>
                     <systemPropertyVariables>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                        <auth.db.url>jdbc:sqlite:target/auth-tests.db</auth.db.url>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
