@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant Client as "Client"
+    participant AuthResource as "AuthResource"
+    participant LegacyDatabase as "LegacyDatabase"
+    participant LegacyTokenUtil as "LegacyTokenUtil"
+    participant StringEscapeUtils as "StringEscapeUtils"
+
+    Client->>AuthResource: POST /auth/login with LoginRequest
+    alt Request is null
+        AuthResource-->>Client: 400 Request is null
+    else Username is missing or blank
+        AuthResource-->>Client: 400 Username is required
+    else Password is missing or blank
+        AuthResource-->>Client: 400 Password is required
+    else Credentials are provided
+        AuthResource->>LegacyDatabase: findByCredentials(username, password)
+        alt User not found
+            LegacyDatabase-->>AuthResource: null
+            AuthResource-->>Client: 401 Invalid user or password
+        else User found
+            LegacyDatabase-->>AuthResource: UserRecord
+            AuthResource->>LegacyTokenUtil: create(username, role)
+            LegacyTokenUtil-->>AuthResource: token
+            AuthResource->>StringEscapeUtils: escapeHtml4(displayName)
+            StringEscapeUtils-->>AuthResource: escaped displayName
+            AuthResource-->>Client: 200 token, expiresIn, user, debug
+        end
+    end
+    opt Exception during login
+        AuthResource-->>Client: 500 message and exception type
+    end
