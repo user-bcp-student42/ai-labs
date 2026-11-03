@@ -67,6 +67,27 @@ def test_rejects_expired_signed_token(tmp_path: Path) -> None:
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize(
+    ("expires_at", "expected_status"),
+    [(1_700_000_000 - 1, 401), (1_700_000_000, 401), (1_700_000_000 + 1, 200)],
+)
+def test_token_expiration_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expires_at: int,
+    expected_status: int,
+) -> None:
+    current_time = 1_700_000_000
+    monkeypatch.setattr("app.security.time.time", lambda: current_time)
+    app = create_app(str(tmp_path / "workshop.db"), str(tmp_path / "uploads"))
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/tasks",
+            headers={"Authorization": f"Bearer {token(expires_at=expires_at)}"},
+        )
+    assert response.status_code == expected_status
+
+
 @pytest.mark.parametrize("expires_at", ["soon", None, [1]])
 def test_rejects_non_numeric_expiration_with_generic_401(tmp_path: Path, expires_at: object) -> None:
     claims = {"sub": "student", "role": "STUDENT", "exp": expires_at, "iss": "ai-labs-auth", "aud": "ai-labs-api"}
@@ -183,7 +204,41 @@ def test_uploads_requirement(tmp_path: Path) -> None:
             files={"file": ("requirements.txt", b"Login must be accessible", "text/plain")},
         )
     assert response.status_code == 201
-    assert (upload_dir / "requirements.txt").exists()
+    assert Path(response.json()["storedAt"]).exists()
+
+
+def test_upload_storage_is_isolated_and_rejects_same_user_duplicate(tmp_path: Path) -> None:
+    app = create_app(str(tmp_path / "workshop.db"), str(tmp_path / "uploads"))
+    with TestClient(app) as client:
+        student_upload = client.post(
+            "/api/requirements",
+            headers=headers("student"),
+            files={"file": ("shared.txt", b"student content", "text/plain")},
+        )
+        trainer_upload = client.post(
+            "/api/requirements",
+            headers=headers("trainer"),
+            files={"file": ("shared.txt", b"trainer content", "text/plain")},
+        )
+        duplicate_upload = client.post(
+            "/api/requirements",
+            headers=headers("student"),
+            files={"file": ("shared.txt", b"replacement content", "text/plain")},
+        )
+
+    assert student_upload.status_code == 201
+    assert trainer_upload.status_code == 201
+    assert set(student_upload.json()) == {"owner", "fileName", "storedAt", "size"}
+    assert student_upload.json()["owner"] == "student"
+    assert trainer_upload.json()["owner"] == "trainer"
+    student_path = Path(student_upload.json()["storedAt"])
+    trainer_path = Path(trainer_upload.json()["storedAt"])
+    assert student_path != trainer_path
+    assert student_path.read_bytes() == b"student content"
+    assert trainer_path.read_bytes() == b"trainer content"
+    assert duplicate_upload.status_code == 409
+    assert duplicate_upload.json() == {"detail": "File already exists"}
+    assert student_path.read_bytes() == b"student content"
 
 
 def test_stores_traversal_name_only_inside_uploads(tmp_path: Path) -> None:
@@ -197,7 +252,9 @@ def test_stores_traversal_name_only_inside_uploads(tmp_path: Path) -> None:
         )
     assert response.status_code == 201
     assert response.json()["fileName"] == "escaped.txt"
-    assert (upload_dir / "escaped.txt").exists()
+    stored_path = Path(response.json()["storedAt"])
+    assert stored_path.name == "escaped.txt"
+    assert upload_dir.resolve() in stored_path.resolve().parents
     assert not (tmp_path / "escaped.txt").exists()
 
 
@@ -212,7 +269,7 @@ def test_accepts_file_name_with_spaces(tmp_path: Path) -> None:
         )
     assert response.status_code == 201
     assert response.json()["fileName"] == "informe final.txt"
-    assert (upload_dir / "informe final.txt").exists()
+    assert Path(response.json()["storedAt"]).exists()
 
 
 def test_rejects_disallowed_extension(tmp_path: Path) -> None:

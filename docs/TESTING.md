@@ -1,6 +1,6 @@
 # Pruebas de la API
 
-Componente: `api`. IDs de hallazgo relacionados: H-API-01, H-API-02, H-API-03, H-API-04 (resueltos), H-API-06 (pendiente).
+Componente: `api`. IDs de hallazgo relacionados: H-API-01, H-API-02, H-API-03, H-API-04 (resueltos), H-API-11 y H-API-12 (implementados localmente; revisión pendiente).
 
 Contrato de referencia: [ENDPOINTS.md](./ENDPOINTS.md). Las pruebas no inventan endpoints ni comportamientos fuera de ese documento.
 
@@ -11,7 +11,7 @@ Contrato de referencia: [ENDPOINTS.md](./ENDPOINTS.md). Las pruebas no inventan 
 | Comando | `python tools/lab.py test api` (desde la raiz `ai-labs/`) |
 | Comando interno | `api\.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=85` |
 | Directorio de ejecucion | `api/` |
-| Archivos de prueba | `api/tests/test_api.py` (28 tests), `api/tests/test_endpoint_contract.py` (22 tests) |
+| Archivos de prueba | `api/tests/test_api.py` (32 tests), `api/tests/test_endpoint_contract.py` (22 tests) |
 
 ## Matriz de pruebas por endpoint
 
@@ -25,6 +25,7 @@ Tipos: **FELIZ** (camino feliz), **BORDE** (caso borde), **ERROR** (respuesta de
 | GET /api/tasks | Propia identidad explicita y valor por defecto coinciden (`test_accepts_own_owner_and_defaults_to_identity`) | FELIZ | 200, misma respuesta con y sin `owner` |
 | GET /api/tasks | Sin cabecera Authorization (`test_list_without_authorization_header_returns_401`) | ERROR | 401, `{"detail":"Invalid token"}` |
 | GET /api/tasks | Token invalido (`test_rejects_invalid_token`) | ERROR | 401 |
+| GET /api/tasks | Expiracion anterior, exacta y posterior al instante actual (`test_token_expiration_boundary`) | BORDE/SEG | 401, 401 y 200, respectivamente |
 | GET /api/tasks | Un usuario no puede leer tareas de otro owner (`test_rejects_other_owner_listing`) | SEG | 403, `{"detail":"Forbidden"}` |
 | POST /api/tasks | Creacion valida y resumen (`test_creates_task_and_summary`) | FELIZ | 201, tarea con `owner` de la identidad |
 | POST /api/tasks | Forma del payload de respuesta (`test_characterizes_task_payload_shape`) | FELIZ | 201, campos `id,title,description,status,owner,priority,createdAt` |
@@ -39,6 +40,7 @@ Tipos: **FELIZ** (camino feliz), **BORDE** (caso borde), **ERROR** (respuesta de
 | GET /api/summary | Sin cabecera Authorization (`test_summary_without_authorization_header_returns_401`) | ERROR | 401 |
 | GET /api/summary | Owner distinto (`test_rejects_other_owner_listing`) | SEG | 403 |
 | POST /api/requirements | Carga valida (`test_uploads_requirement`) | FELIZ | 201, `{owner,fileName,storedAt,size}` |
+| POST /api/requirements | Mismo nombre entre usuarios y duplicado del mismo usuario (`test_upload_storage_is_isolated_and_rejects_same_user_duplicate`) | SEG/BORDE | Usuarios distintos conservan archivos separados; duplicado propio responde 409 sin reemplazar el archivo |
 | POST /api/requirements | Nombre con espacios (`test_accepts_file_name_with_spaces`) | BORDE | 201 |
 | POST /api/requirements | Archivo de exactamente 1 MiB (`test_upload_file_at_exact_size_limit_is_accepted`) | BORDE | 201, `size=1048576` |
 | POST /api/requirements | Archivo vacio de 0 bytes (`test_upload_empty_file_is_stored_with_zero_size`) | BORDE | 201, `size=0` |
@@ -64,6 +66,7 @@ Nota: los tests de `test_api.py` que validan tokens (`test_rejects_legacy_token_
 | Fecha de ejecucion | Componente | IDs | Comando | Directorio | Codigo de salida | Resultado |
 |---|---|---|---|---|---|---|
 | Esta ejecucion | api | H-API-01, H-API-02, H-API-03, H-API-04 | `python tools/lab.py test api` | `api/` (via lab.py) | 0 | 50 passed, 0 failed, 103 warnings (deprecaciones de FastAPI `on_event` y de starlette, H-API-10) |
+| 2026-11-03 | api | H-API-11, H-API-12 | `python tools/lab.py test api` | `api/` (via lab.py) | 0 | 54 passed, 0 failed, 111 warnings; cobertura total 98.05%, gate de 85% cumplido |
 
 Resultado de referencia previo a esta ejecucion: 28 passed, 94.61% (sin tests de `/api/backend-health` ni de los casos borde nuevos).
 
@@ -73,14 +76,14 @@ Metodo: coverage.py con `pytest --cov=app`, medicion de lineas y ramas (`branch`
 
 | Medida | Numerador | Denominador | Porcentaje |
 |---|---|---|---|
-| Lineas, codigo modificado (`app/`) | 206 | 209 | 98.56% |
-| Cobertura total del reporte (lineas + ramas) | sumatoria del reporte | sumatoria del reporte | 97.93% |
+| Lineas, codigo modificado (`app/`) | 221 | 224 | 98.66% |
+| Cobertura total del reporte (lineas + ramas) | sumatoria del reporte | sumatoria del reporte | 98.05% |
 | `app/main.py` | 100% | 100% | 100% |
 | `app/uploads.py` | 100% | 100% | 100% |
 | `app/repository.py` | 100% | 100% | 100% |
 | `app/security.py` | 70 | 73 | 95.89% (sin cubrir lineas 46, 62, 85) |
 
-Cobertura global: el paquete medido es el mismo que el codigo modificado, asi que la cobertura global de la API (lineas + ramas) es 97.93%. Las pruebas no se miden a si mismas.
+Cobertura global: el paquete medido es el mismo que el codigo modificado, asi que la cobertura global de la API (lineas + ramas) es 98.05%. Las pruebas no se miden a si mismas.
 
 Umbral de AGENTS.md: 85%. Cumplido en la ejecucion registrada (`--cov-fail-under=85`).
 

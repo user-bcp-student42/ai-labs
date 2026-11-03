@@ -57,11 +57,37 @@ Orden: severidad de mayor a menor. Todos los estados iniciales son "Pendiente" (
 | H-API-03 | api | El cliente puede consultar y crear tareas de otro `owner` (RETO: Autorización) | Vulnerabilidad | `owner` llega por query o por cuerpo y reemplaza la identidad del token. Un usuario lee el resumen o las tareas de otro, y puede crear tareas a nombre de otro. | api/app/main.py:68-69, api/app/main.py:83, api/app/main.py:91-92 | alta | Resuelto. `authorized_owner()` en api/app/main.py compara `owner` con la identidad del token y responde 403 si difiere; list, summary y create lo usan. Pruebas en api/tests/test_api.py (13 pasan, cobertura 92.86%). |
 | H-API-04 | api | Nombre de archivo sin normalizar, sin límite de extensión ni tamaño (RETO: Files) | Vulnerabilidad | `file.filename` se une a la ruta de uploads sin normalizar, por lo que un nombre con separadores o `..` podría escribir fuera del directorio. Tampoco hay límite de tamaño ni de extensión. Pendiente de reproducir en entorno aislado. | api/app/main.py:109-112 | alta | Resuelto. Nombre normalizado con `safe_file_name()` y extensión permitida (422), lectura acotada a 1 MiB (413) en api/app/uploads.py. Los nombres con espacios se permiten (decisión humana en revisión). Pruebas de traversal, extensión, tamaño y espacios en api/tests/test_api.py (28 pasan, cobertura 94.61%). |
 | H-API-05 | api | Dependencias con CVEs conocidos: `urllib3 2.5.0` y `python-multipart 0.0.21` (RETO: SCA) | Vulnerabilidad | urllib3 2.5.0 está afectado por CVE-2025-66418 y CVE-2025-66471, corregidos en 2.6.0; afecta la respuesta de `backend-health`. python-multipart 0.0.21 está afectado por CVE-2026-24486 (path traversal en configuración no predeterminada), corregido en 0.0.22. La exposición real depende del uso; no se ha corrido `pip-audit`. | api/requirements.txt:4-5 | media | Aprobado |
-| H-API-06 | api | Respuestas exponen detalles internos: error de token y error de `backend-health` (adicional) | Vulnerabilidad | El mensaje de excepción crudo (`str(error)`) llega al cliente y revela detalles de la implementación. Debe ser un mensaje genérico y el detalle quedar en el log del servidor. | api/app/main.py:26, api/app/main.py:121 | media | Pendiente |
+| H-API-06 | api | `backend-health` expone el texto de excepciones del servicio upstream (adicional) | Candidato | Cuando falla la consulta, `str(error)` se devuelve en `body`; el candidato se limita a este endpoint. | api/app/main.py:136-137, api/tests/test_endpoint_contract.py:230-235 | baja | CANDIDATO |
 | H-API-07 | api | Calidad: `dict[str, Any]` sin tipos, excepciones amplias, condicionales anidados y duplicación (RETO: Calidad) | Refactor | Los modelos de entrada y salida no están tipados; `except Exception` oculta errores reales. El resumen usa `if` anidados y la lista de columnas está repetida. Dificulta probar y cambiar sin romper contratos. | api/app/main.py:25, api/app/main.py:78, api/app/main.py:94-105, api/app/main.py:70, api/app/main.py:87 | media | Pendiente |
 | H-API-08 | api | Rutas, base de datos, reglas y serialización en una sola función (RETO: Arquitectura) | Refactor | `create_app` mezcla creación de tablas, semilla, serialización, CORS y todas las rutas con SQL. Cualquier cambio en una capa toca las demás, y no se puede probar la lógica sin HTTP. | api/app/main.py:29-127 | media | Pendiente |
 | H-API-09 | api | CORS con `allow_origins=["*"]` y `allow_credentials=True` (adicional) | Vulnerabilidad | La combinación es permisiva. Hoy la autenticación va en cabecera y no en cookies, lo que reduce el riesgo; cambiarlo a cookies lo volvería explotable. | api/app/main.py:48-53 | baja | Pendiente |
 | H-API-10 | api | `@app.on_event("shutdown")` está obsoleto en FastAPI (adicional) | Refactor | La API marca deprecación en las pruebas. Migrar a `lifespan` evita que el cierre de la conexión deje de ejecutarse en versiones futuras. | api/app/main.py:123-125 | baja | Pendiente |
+
+#### Candidatos de discovery (revisión humana pendiente)
+
+### H-API-06 — `backend-health` expone el texto de excepciones del servicio upstream
+- Estado: CANDIDATO
+- Evidencia: `api/app/main.py:136-137` devuelve `str(error)` en `body`. La prueba `api/tests/test_endpoint_contract.py:230-235` confirma que una excepción con el texto `connection refused` llega al cliente.
+- Impacto: una excepción de red o del cliente HTTP puede revelar mensajes internos sobre conectividad e infraestructura a cualquier usuario que ya tenga un token válido.
+- Prioridad propuesta: baja.
+- Contrato potencialmente afectado: cuerpo de `GET /api/backend-health` (`{requestedBy,status,body}`); cambiar `body` en errores requeriría decidir si el contrato conserva un mensaje genérico o un detalle.
+- Cómo validarlo: sustituir el upstream por una excepción cuyo texto incluya un dato señuelo y comprobar si ese texto aparece en la respuesta; validar también la respuesta genérica que se acuerde.
+
+### H-API-11 — El token se acepta en el segundo exacto de expiración
+- Estado: Implementado localmente; pendiente revisión humana del cambio.
+- Evidencia: la validación en `api/app/security.py:91-97` ahora rechaza `expires_at <= int(time.time())`; `api/tests/test_api.py:74-89` cubre expiración pasada, exacta y futura con reloj controlado.
+- Impacto: un token cuya expiración coincide con el tiempo actual en segundos todavía supera la validación durante ese límite, aunque ya haya alcanzado su `exp`.
+- Prioridad propuesta: baja.
+- Contrato potencialmente afectado: autenticación de todos los endpoints protegidos; tokens expirados deberían recibir 401.
+- Cómo validarlo: `test_token_expiration_boundary` fija el reloj y verifica `exp` anterior, exacto y posterior; pasa en la ejecución registrada abajo.
+
+### H-API-12 — Una carga puede sobrescribir el archivo de otro usuario
+- Estado: Implementado localmente; pendiente revisión humana del cambio.
+- Evidencia: `api/app/main.py:122-126` pasa la identidad autenticada al almacenamiento; `api/app/uploads.py:37-48` separa directorios por identidad y crea archivos sin sobrescribirlos. `api/tests/test_api.py:210-240` verifica aislamiento y rechazo del duplicado propio.
+- Impacto: dos usuarios autenticados que carguen un archivo con el mismo nombre comparten destino; la segunda carga puede reemplazar el contenido de la primera.
+- Prioridad propuesta: media.
+- Contrato potencialmente afectado: aislamiento por identidad en `POST /api/requirements` y su respuesta `{owner,fileName,storedAt,size}`; el contrato acordado aún no está documentado.
+- Cómo validarlo: `test_upload_storage_is_isolated_and_rejects_same_user_duplicate` comprueba almacenamiento separado para dos identidades y HTTP 409 ante duplicado propio; pasa en la ejecución registrada abajo.
 
 #### Evidencia de ejecución (línea base, sin cambios)
 
@@ -69,8 +95,9 @@ Orden: severidad de mayor a menor. Todos los estados iniciales son "Pendiente" (
 |---|---|---|---|---|
 | 2026-11-02 | api | ninguno (línea base) | `python tools/lab.py setup api` | Dependencias ya satisfechas en `api/.venv`; sin errores. |
 | 2026-11-02 | api | ninguno (línea base) | `python tools/lab.py test api` | 4 passed; cobertura de `app` 91.07% (gate 85% cumplido). No cubiertas: `api/app/main.py` 23, 102->95, 103->95, 116-121. Código de salida 0. |
+| 2026-11-03 | api | H-API-11, H-API-12 | `python tools/lab.py test api` | 54 passed, 0 failed; cobertura total 98.05%, gate 85% cumplido; código de salida 0. 111 warnings preexistentes de deprecación de FastAPI `on_event`/Starlette. |
 
-Nota: el gate de 85% de `test api` mide toda la app, no el código modificado. La cobertura del diff queda pendiente hasta que existan cambios.
+Nota: el gate de 85% mide toda `api/app/`; no produce por separado cobertura del diff. En la ejecución registrada, los módulos modificados `main.py` y `uploads.py` quedaron cubiertos al 100%, y `security.py` al 95% por archivo.
 
 #### Pendientes (sin resolver)
 

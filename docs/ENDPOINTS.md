@@ -19,7 +19,7 @@ Las secciones de `auth` y `web` no existen todavía en este archivo; cuando se a
   Authorization: Bearer <token_jwt>
   ```
 
-  El token lo emite el servicio `auth/`. Debe ser HS256, firmado con el secreto compartido de la variable de entorno `WORKSHOP_JWT_SECRET`, y contener `sub` (usuario), `role`, `exp` (expiración en epoch), `iss` = `ai-labs-auth` y `aud` = `ai-labs-api` (`api/app/security.py`). El token legado en base64 ya no se acepta.
+  El token lo emite el servicio `auth/`. Debe ser HS256, firmado con el secreto compartido de la variable de entorno `WORKSHOP_JWT_SECRET`, y contener `sub` (usuario), `role`, `exp` (expiración en epoch), `iss` = `ai-labs-auth` y `aud` = `ai-labs-api` (`api/app/security.py`). Se rechaza cuando el tiempo actual es igual o posterior a `exp`. El token legado en base64 ya no se acepta.
 - Identidad: el usuario del token (`sub`) es la identidad autorizada. El parámetro/campo `owner` es opcional: si se omite se usa la identidad; si se envía igual a la identidad se acepta; si difiere, la API responde 403.
 - Errores de autenticación: cualquier error de token responde 401 con el mismo cuerpo genérico (no se revela la causa).
 
@@ -318,7 +318,7 @@ Errores comunes:
    |---|---|---|
    | `owner` | string | Usuario que subió el archivo (identidad del token). |
    | `fileName` | string | Nombre del archivo tras normalizarlo (solo nombre base). |
-   | `storedAt` | string | Ruta donde quedó guardado el archivo en el servidor. Ver riesgo pendiente. |
+   | `storedAt` | string | Ruta donde quedó guardado el archivo en el servidor, dentro del almacenamiento aislado del usuario. Ver riesgo pendiente. |
    | `size` | integer | Tamaño en bytes. |
 
    Ejemplo (archivo `informe final.txt` de 3 bytes):
@@ -327,7 +327,7 @@ Errores comunes:
    {
      "owner": "student",
      "fileName": "informe final.txt",
-     "storedAt": "C:\\ai-labs\\api\\uploads\\informe final.txt",
+     "storedAt": "C:\\ai-labs\\api\\uploads\\<directorio-usuario>\\informe final.txt",
      "size": 3
    }
    ```
@@ -354,6 +354,12 @@ Errores comunes:
      {"detail":"Invalid file name or extension"}
      ```
 
+   - **409 Conflict**: el usuario ya tiene un archivo con ese nombre.
+
+     ```json
+     {"detail":"File already exists"}
+     ```
+
    - **422 Unprocessable Entity** (falta el campo `file`): error de validación de FastAPI (observado).
 
      ```json
@@ -372,6 +378,7 @@ Errores comunes:
 6. **Notas de seguridad**
    - Se normaliza el nombre al nombre base (`Path(name).name`), lo que bloquea rutas como `../x.txt` (H-API-04, resuelto).
    - Solo se aceptan extensiones `.txt` y `.md`, y el tamaño se limita a 1 MiB sin cargar más de ese límite en memoria (H-API-04, resuelto).
+   - Las cargas se aíslan por identidad: dos usuarios pueden usar el mismo nombre sin reemplazarse; el mismo usuario recibe 409 si intenta reutilizar un nombre ya cargado.
    - Riesgo pendiente: `storedAt` expone la ruta absoluta del servidor al cliente.
 
 ---

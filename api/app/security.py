@@ -93,5 +93,5 @@ def verify_expiration(claims: dict[str, Any]) -> None:
         expires_at = int(claims.get("exp", 0))
     except (TypeError, ValueError) as error:
         raise InvalidTokenError("invalid expiration") from error
-    if expires_at < int(time.time()):
+    if expires_at <= int(time.time()):
         raise InvalidTokenError("token expired")

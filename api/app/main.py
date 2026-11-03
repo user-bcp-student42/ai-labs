@@ -12,7 +12,14 @@ from fastapi.responses import JSONResponse
 
 from app.repository import find_status_and_priority_by_owner, find_task_by_id, find_tasks_by_owner, insert_task
 from app.security import InvalidTokenError, identity_from_authorization
-from app.uploads import InvalidUploadError, UploadTooLargeError, read_bounded, safe_file_name
+from app.uploads import (
+    DuplicateUploadError,
+    InvalidUploadError,
+    UploadTooLargeError,
+    read_bounded,
+    safe_file_name,
+    store_upload,
+)
 
 
 PRIORITY_HIGH = "HIGH"
@@ -115,9 +122,12 @@ def create_app(db_path: str | None = None, upload_dir: str | None = None) -> Fas
     async def upload_requirement(file: UploadFile = File(...), identity: dict[str, str] = Depends(require_identity)) -> dict[str, Any]:
         file_name = safe_file_name(file.filename)
         content = await read_bounded(file)
-        target = Path(selected_uploads) / file_name
-        target.write_bytes(content)
+        target = store_upload(selected_uploads, identity["username"], file_name, content)
         return {"owner": identity["username"], "fileName": file_name, "storedAt": str(target), "size": len(content)}
+
+    @app.exception_handler(DuplicateUploadError)
+    def duplicate_upload(_request: Request, _error: DuplicateUploadError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "File already exists"})
 
     @app.exception_handler(InvalidUploadError)
     def invalid_upload(_request: Request, _error: InvalidUploadError) -> JSONResponse:
