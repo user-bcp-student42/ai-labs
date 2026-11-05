@@ -107,3 +107,27 @@ Nota: el gate de 85% mide toda `api/app/`; no produce por separado cobertura del
 - P-API-04: el contrato acordado no existe todavía. Requiere aprobación humana antes de cambiar rutas o formatos.
 - P-API-05: las pruebas actuales no cubren autorización por `owner`, consultas con comillas, subida de archivos maliciosa ni la rama de error de `backend-health`.
 - P-API-06: existen ramas remotas de Dependabot para `python-multipart` 0.0.32 y `fastapi` 0.162.0. Se registran solo como referencia; no se integran en Discovery.
+
+## auth
+
+### Discovery
+
+- Fecha de referencia: 2026-11-05. Sin cambios de código; componente `auth/` únicamente.
+- Estado `CONFIRMADO`: aprobado por revisión humana. No implica solución técnica elegida.
+- Issues: `H-AUTH-01` → #22 (PR #31, pendiente de revisión humana). `H-AUTH-02` → #30, `H-AUTH-03` → #28, `H-AUTH-04` → #29. El Project `backlog-ai-labs` no tiene campo `Hallazgo origen`; el Id H-AUTH-NN va en el cuerpo de cada issue.
+- No existe contrato documentado de `POST /auth/login` en `docs/ENDPOINTS.md` (solo cubre `api`).
+
+#### Matriz de seguimiento
+
+| id | componente | hallazgo | tipo | explicacion | evidencia (archivo:linea) | severidad | estado |
+|---|---|---|---|---|---|---|---|
+| H-AUTH-01 | auth | Consulta SQL de credenciales concatenada (RETO: SQL) | Vulnerabilidad | `username` y `password` se insertan directamente en la sentencia; una entrada especialmente formada puede alterar la verificación y omitir la autenticación. | auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:32, auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:35 | alta | Implementado en PR #31 (`mvn verify` en verde, 14 pruebas); pendiente de revisión humana. Issue #22. |
+| H-AUTH-02 | auth | Token emitido por `auth/` incompatible con el contrato JWT que valida `api/` (RETO: Token) | Vulnerabilidad / Integración | `auth/` emite un token Base64 con secreto constante; `api/` exige JWT HS256 con secreto de entorno y claims `sub`, `role`, `exp`, `iss`, `aud`, y rechaza el token legado. Un login exitoso produce un token que la API protegida no acepta. | auth/src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java:8, auth/src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java:15, docs/ENDPOINTS.md:22, docs/TESTING.md:105 | alta | CONFIRMADO. Issue #30. |
+| H-AUTH-03 | auth | Contraseñas almacenadas en texto plano (RETO: Datos) | Vulnerabilidad | La columna `password` guarda el valor literal y la inicialización inserta contraseñas literales; una copia de la base expone las credenciales. | auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:22, auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:23, auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:24 | alta (media si solo hay datos de taller) | CONFIRMADO. Issue #28. |
+| H-AUTH-04 | auth | Errores de `POST /auth/login` exponen detalles internos (RETO: Errores) | Vulnerabilidad | El `catch` devuelve el mensaje de la excepción y el nombre de su clase al cliente. | auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:54, auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:56, auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:57 | media | CONFIRMADO. Issue #29. |
+
+#### Pendientes (sin resolver)
+
+- P-AUTH-01: el Project `backlog-ai-labs` no expone campo `Hallazgo origen`; crearlo y completarlo para #22, #28, #29 y #30 queda pendiente.
+- P-AUTH-02: la cobertura de pruebas de `auth/` es una sola prueba de login exitoso (`auth/src/test/java/com/bcp/workshop/auth/AuthResourceTest.java:13`); no se ejecutó la suite en Discovery.
+- P-AUTH-03: no hay contrato acordado de `POST /auth/login` ni de la forma del token emitido; requiere decisión humana antes de cambiar respuesta o token.
