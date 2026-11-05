@@ -110,4 +110,36 @@ class AuthResourceTest {
                 .statusCode(401)
                 .body("token", nullValue());
     }
+
+    @Test
+    @DisplayName("Credenciales como datos: inyección en username responde 401 sin token")
+    void sqlInjectionInUsernameReturns401WithoutToken() {
+        login("{\"username\":\"' OR 1=1--\",\"password\":\"whatever\"}")
+                .statusCode(401)
+                .body("token", nullValue());
+    }
+
+    @Test
+    @DisplayName("Credenciales como datos: inyección en password responde 401 sin token")
+    void sqlInjectionInPasswordReturns401WithoutToken() {
+        login("{\"username\":\"student\",\"password\":\"' OR '1'='1\"}")
+                .statusCode(401)
+                .body("token", nullValue());
+    }
+
+    @Test
+    @DisplayName("Credenciales como datos: inyección en ambos campos responde 401 sin token")
+    void sqlInjectionInBothFieldsReturns401WithoutToken() {
+        login("{\"username\":\"' OR '1'='1\",\"password\":\"' OR '1'='1\"}")
+                .statusCode(401)
+                .body("token", nullValue());
+    }
+
+    @Test
+    @DisplayName("Credenciales como datos: comentario SQL tras el username responde 401 sin token")
+    void sqlCommentAfterUsernameReturns401WithoutToken() {
+        login("{\"username\":\"student'--\",\"password\":\"not-the-password\"}")
+                .statusCode(401)
+                .body("token", nullValue());
+    }
 }
